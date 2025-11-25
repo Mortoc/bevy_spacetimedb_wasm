@@ -48,14 +48,11 @@ async fn test_real_connection() {
 
     let bridge = get_bridge();
 
-    // Create connection
     let connection_id = bridge.create_connection(
         "http://localhost:3000",
         "bevy_spacetimedb_test_module",
         None
     );
-
-    web_sys::console::log_1(&format!("Created connection ID: {}", connection_id).into());
 
     // Connect - this WILL fail if server is not running
     JsFuture::from(bridge.connect(connection_id))
