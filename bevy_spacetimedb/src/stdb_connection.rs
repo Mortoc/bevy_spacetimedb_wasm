@@ -12,7 +12,12 @@ pub struct StdbConnection {
 }
 
 /// Wrapper to make JS types Send + Sync in WASM single-threaded context
-/// SAFETY: WASM is single-threaded, so Send + Sync are safe
+/// SAFETY: WASM is single-threaded, so Send + Sync are safe.
+/// This assumes single-threaded WASM without atomics. If WASM gains threading support,
+/// this wrapper will need to be reevaluated for soundness.
+#[cfg(target_feature = "atomics")]
+compile_error!("SendSyncWrapper assumes single-threaded WASM. Review safety with atomics enabled.");
+
 #[derive(Clone)]
 pub(crate) struct SendSyncWrapper<T>(T);
 

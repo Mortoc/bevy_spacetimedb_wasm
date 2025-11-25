@@ -139,17 +139,32 @@ fn setup_table_events<T: TableRow>(
     let mut update_callback_id = None;
     let mut delete_callback_id = None;
 
+    // Setup InsertUpdate event channel if both insert and update are enabled
+    let insert_update_send = if events.insert && events.update {
+        let (send, recv) = std::sync::mpsc::channel::<InsertUpdateEvent<T>>();
+        app.add_event_channel(recv);
+        Some(send)
+    } else {
+        None
+    };
+
     // Setup insert events
     if events.insert {
         let (send, recv) = std::sync::mpsc::channel::<InsertEvent<T>>();
         app.add_event_channel(recv);
 
+        let insert_update_send_clone = insert_update_send.clone();
         let callback = Closure::wrap(Box::new(move |data: JsValue| {
             if let Some(json) = data.as_string() {
                 match serde_json::from_str::<serde_json::Value>(&json) {
                     Ok(value) => {
                         if let Ok(row) = serde_json::from_value::<T>(value["row"].clone()) {
-                            let _ = send.send(InsertEvent { row });
+                            let _ = send.send(InsertEvent { row: row.clone() });
+
+                            // Also send to InsertUpdateEvent if enabled
+                            if let Some(ref insert_update) = insert_update_send_clone {
+                                let _ = insert_update.send(InsertUpdateEvent { old: None, new: row });
+                            }
                         } else {
                             web_sys::console::error_1(
                                 &format!(
@@ -170,7 +185,9 @@ fn setup_table_events<T: TableRow>(
         }) as Box<dyn Fn(JsValue)>);
 
         let id = bridge.register_callback(callback.as_ref().unchecked_ref());
-        callback.forget(); // Keep the closure alive
+        // Keep the closure alive for the app lifetime. This is intentional - these callbacks
+        // are registered with the JS SDK and must live as long as the connection exists.
+        callback.forget();
         insert_callback_id = Some(id);
     }
 
@@ -179,6 +196,7 @@ fn setup_table_events<T: TableRow>(
         let (send, recv) = std::sync::mpsc::channel::<UpdateEvent<T>>();
         app.add_event_channel(recv);
 
+        let insert_update_send_clone = insert_update_send;
         let callback = Closure::wrap(Box::new(move |data: JsValue| {
             if let Some(json) = data.as_string() {
                 match serde_json::from_str::<serde_json::Value>(&json) {
@@ -187,7 +205,12 @@ fn setup_table_events<T: TableRow>(
                         let new_result = serde_json::from_value::<T>(value["newRow"].clone());
 
                         if let (Ok(old), Ok(new)) = (old_result, new_result) {
-                            let _ = send.send(UpdateEvent { old, new });
+                            let _ = send.send(UpdateEvent { old: old.clone(), new: new.clone() });
+
+                            // Also send to InsertUpdateEvent if enabled
+                            if let Some(ref insert_update) = insert_update_send_clone {
+                                let _ = insert_update.send(InsertUpdateEvent { old: Some(old), new });
+                            }
                         } else {
                             web_sys::console::error_1(
                                 &format!(
@@ -208,6 +231,8 @@ fn setup_table_events<T: TableRow>(
         }) as Box<dyn Fn(JsValue)>);
 
         let id = bridge.register_callback(callback.as_ref().unchecked_ref());
+        // Keep the closure alive for the app lifetime. This is intentional - these callbacks
+        // are registered with the JS SDK and must live as long as the connection exists.
         callback.forget();
         update_callback_id = Some(id);
     }
@@ -243,54 +268,10 @@ fn setup_table_events<T: TableRow>(
         }) as Box<dyn Fn(JsValue)>);
 
         let id = bridge.register_callback(callback.as_ref().unchecked_ref());
+        // Keep the closure alive for the app lifetime. This is intentional - these callbacks
+        // are registered with the JS SDK and must live as long as the connection exists.
         callback.forget();
         delete_callback_id = Some(id);
-    }
-
-    // Setup InsertUpdate events if both insert and update are enabled
-    if events.insert && events.update {
-        let (send, recv) = std::sync::mpsc::channel::<InsertUpdateEvent<T>>();
-        app.add_event_channel(recv);
-
-        // We'll create duplicate callbacks that send to the InsertUpdateEvent channel
-        // This is simpler than trying to share the same callback
-
-        let send_insert = send.clone();
-        let insert_update_callback = Closure::wrap(Box::new(move |data: JsValue| {
-            if let Some(json) = data.as_string() {
-                match serde_json::from_str::<serde_json::Value>(&json) {
-                    Ok(value) => {
-                        if let Ok(row) = serde_json::from_value::<T>(value["row"].clone()) {
-                            let _ = send_insert.send(InsertUpdateEvent { old: None, new: row });
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-        }) as Box<dyn Fn(JsValue)>);
-
-        let send_update = send;
-        let update_update_callback = Closure::wrap(Box::new(move |data: JsValue| {
-            if let Some(json) = data.as_string() {
-                match serde_json::from_str::<serde_json::Value>(&json) {
-                    Ok(value) => {
-                        let old_result = serde_json::from_value::<T>(value["oldRow"].clone());
-                        let new_result = serde_json::from_value::<T>(value["newRow"].clone());
-
-                        if let (Ok(old), Ok(new)) = (old_result, new_result) {
-                            let _ =
-                                send_update.send(InsertUpdateEvent { old: Some(old), new });
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-        }) as Box<dyn Fn(JsValue)>);
-
-        // We don't register these with the bridge directly since they're duplicates
-        // of the insert/update callbacks. Just keep them alive.
-        insert_update_callback.forget();
-        update_update_callback.forget();
     }
 
     // Subscribe to the table with the registered callbacks

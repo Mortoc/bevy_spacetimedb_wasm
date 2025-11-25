@@ -166,7 +166,10 @@ impl Plugin for StdbPlugin {
         bridge.on_disconnect(connection_id, disconnected_id);
         bridge.on_connection_error(connection_id, error_id);
 
-        // Keep the closures alive for the lifetime of the application
+        // Keep the closures alive for the lifetime of the application.
+        // This is intentional - these callbacks are registered with the JS SDK and must live
+        // as long as the connection exists. Storing them in a Resource would cause use-after-free
+        // when Bevy drops the resource but JS still holds references to the callbacks.
         connected_cb.forget();
         disconnected_cb.forget();
         error_cb.forget();
