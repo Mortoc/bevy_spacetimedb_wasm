@@ -1,45 +1,42 @@
-use bevy::prelude::Event;
-use spacetimedb_sdk::{Error, Identity};
+use bevy::prelude::Message;
 
 /// An event that is triggered when a connection to SpacetimeDB is established.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct StdbConnectedEvent {
-    /// The `Identity`` of the successful connection.
-    pub identity: Identity,
-    /// The private access token which can be used to later re-authenticate as the same `Identity`.
-    pub access_token: String,
+    // Note: In WASM mode, we don't have direct access to Identity/tokens
+    // These would need to be queried from the JS side if needed
 }
 
 /// An event that is triggered when a connection to SpacetimeDB is lost.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct StdbDisconnectedEvent {
-    /// The error that caused the disconnection, if any.
-    pub err: Option<Error>,
+    /// The error message that caused the disconnection, if any.
+    pub err: Option<String>,
 }
 
 /// An event that is triggered when a connection to SpacetimeDB encounters an error.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct StdbConnectionErrorEvent {
-    /// The error that occurred.
-    pub err: Error,
+    /// The error message that occurred.
+    pub err: String,
 }
 
 /// An event that is triggered when a row is inserted into a table.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct InsertEvent<T> {
     /// The row that was inserted.
     pub row: T,
 }
 
 /// An event that is triggered when a row is deleted from a table.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct DeleteEvent<T> {
     /// The row that was deleted.
     pub row: T,
 }
 
 /// An event that is triggered when a row is updated in a table.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct UpdateEvent<T> {
     /// The old row.
     pub old: T,
@@ -48,7 +45,7 @@ pub struct UpdateEvent<T> {
 }
 
 /// An event that is triggered when a row is inserted or updated in a table.
-#[derive(Event)]
+#[derive(Message, Debug, Clone)]
 pub struct InsertUpdateEvent<T> {
     /// The previous value of the row if it was updated.
     pub old: Option<T>,
@@ -56,15 +53,15 @@ pub struct InsertUpdateEvent<T> {
     pub new: T,
 }
 
-/// An event that is triggered when a reducer is invoked.
-#[derive(Event, Debug)]
+/// An event that is triggered when a reducer is called and returns a result.
+#[derive(Message, Debug, Clone)]
 pub struct ReducerResultEvent<T> {
-    /// The result of the reducer invocation.
+    /// The reducer result data.
     pub result: T,
 }
 
 impl<T> ReducerResultEvent<T> {
-    /// Creates a new reducer result event.
+    /// Create a new ReducerResultEvent with the given result.
     pub fn new(result: T) -> Self {
         Self { result }
     }
