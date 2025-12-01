@@ -37,7 +37,7 @@ pub mod test_bridge_loader;
 pub use bridge::get_bridge;
 pub use channel_receiver::AddEventChannelAppExtensions;
 pub use events::*;
-pub use identity::{Identity, IdentityError};
+pub use identity::{Identity, IdentityError, Timestamp};
 pub use plugin::*;
 pub use reducers::*;
 pub use stdb_connection::{StdbConnection, ConnectionState};

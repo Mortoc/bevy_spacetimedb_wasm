@@ -147,7 +147,7 @@ pub struct Player {
     pub name: String,
     pub x: f32,
     pub y: f32,
-    pub owner: String, // Identity as hex string
+    pub owner: Identity, // SpacetimeDB Identity type
 }
 
 // 2. Implement TableRow trait
@@ -186,24 +186,27 @@ fn handle_player_spawns(
 
 **SpacetimeDB generates TypeScript client bindings, not Rust bindings.** This means you need to:
 
-1. **Manually translate types** - Copy your server structs to client, adapting types:
+1. **Manually translate types** - Copy your server structs to client with matching types:
    ```rust
    // Server (SpacetimeDB module)
-   use spacetimedb::Identity;
+   use spacetimedb::{Identity, Timestamp};
    pub struct Player {
-       pub owner: Identity,  // SpacetimeDB Identity type
+       pub owner: Identity,
+       pub created_at: Timestamp,
    }
 
-   // Client (Bevy WASM)
+   // Client (Bevy WASM) - Same types! ✅
+   use bevy_spacetimedb_wasm::{Identity, Timestamp};
    pub struct Player {
-       pub owner: String,    // Identity becomes hex string on client
+       pub owner: Identity,      // Automatically serializes as hex string
+       pub created_at: Timestamp, // Automatically serializes as microseconds
    }
    ```
 
 2. **Match field names exactly** - Field names must match between server and client
 3. **Match field types** - Use compatible types:
-   - `Identity` (server) → `String` (client, as hex string)
-   - `Timestamp` (server) → Not directly accessible on client
+   - `Identity` (server) → `Identity` (client) ✅ Full support with automatic hex string serialization
+   - `Timestamp` (server) → `Timestamp` (client) ✅ Full support with microseconds serialization
    - `u64`, `String`, `f32`, etc. → Same on both sides
    - `Vec<T>` → Same on both sides
 
@@ -336,17 +339,70 @@ fn handle_connection_events(
 }
 ```
 
-## Identity and Authentication
+## Identity and Timestamp Types
 
-Access the connected client's identity and token:
+### Identity
+
+The `Identity` type represents a 32-byte SpacetimeDB user identifier. It automatically serializes to/from hex strings when used in table rows.
 
 ```rust
+use bevy_spacetimedb_wasm::Identity;
+
+// Access your own identity after connecting
 fn show_identity(connection: Res<StdbConnection>) {
     if let Some(identity) = connection.identity() {
-        info!("My identity: {}", identity.to_hex());
-        info!("Short ID: {}", identity.short_hex()); // First 8 chars
+        info!("My identity: {}", identity.to_hex());      // Full 64-char hex
+        info!("Short ID: {}", identity.short_hex());      // First 8 chars
     }
+}
 
+// Use Identity in your table structs
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Player {
+    pub owner: Identity,  // Automatically serializes as hex string
+}
+
+// Create Identity from hex string
+let identity = Identity::from_hex("123456789abcdef0...")
+    .expect("Invalid hex");
+
+// Display Identity
+println!("{}", identity);  // Prints full hex string
+```
+
+### Timestamp
+
+The `Timestamp` type represents time in SpacetimeDB as microseconds since the Unix epoch.
+
+```rust
+use bevy_spacetimedb_wasm::Timestamp;
+
+// Use Timestamp in your table structs
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Event {
+    pub created_at: Timestamp,  // Automatically serializes as microseconds
+}
+
+// Create from microseconds
+let ts = Timestamp::from_micros(1234567890);
+
+// Access different time units
+let micros = ts.as_micros();  // 1234567890
+let millis = ts.as_millis();  // 1234567
+let secs = ts.as_secs();      // 1234
+
+// Timestamps are comparable
+if timestamp1 < timestamp2 {
+    info!("Event 1 happened before Event 2");
+}
+```
+
+### Authentication Tokens
+
+Access the authentication token after connecting:
+
+```rust
+fn show_token(connection: Res<StdbConnection>) {
     if let Some(token) = connection.token() {
         info!("Auth token: {}", token);
     }
