@@ -12,13 +12,14 @@ This crate provides a Bevy plugin that connects to SpacetimeDB in browser enviro
 
 ## Features
 
-- ✅ Real-time connection to SpacetimeDB via TypeScript SDK 1.3.3+
+- ✅ Real-time connection to SpacetimeDB via TypeScript SDK 1.9.x
 - ✅ Automatic table event subscriptions (Insert/Update/Delete)
 - ✅ Reducer calls from Bevy systems
 - ✅ Identity and token access after connection
-- ✅ Bevy event system integration
+- ✅ Bevy event system integration with metadata (reducer name, caller identity)
 - ✅ Type-safe reducer definitions
 - ✅ Connection lifecycle events
+- ✅ Selective event subscriptions (insert-only, no-update, etc.)
 
 ## Quick Start
 
@@ -181,6 +182,46 @@ fn handle_player_spawns(
 }
 ```
 
+### ⚠️ Important: Manual Type Translation Required
+
+**SpacetimeDB generates TypeScript client bindings, not Rust bindings.** This means you need to:
+
+1. **Manually translate types** - Copy your server structs to client, adapting types:
+   ```rust
+   // Server (SpacetimeDB module)
+   use spacetimedb::Identity;
+   pub struct Player {
+       pub owner: Identity,  // SpacetimeDB Identity type
+   }
+
+   // Client (Bevy WASM)
+   pub struct Player {
+       pub owner: String,    // Identity becomes hex string on client
+   }
+   ```
+
+2. **Match field names exactly** - Field names must match between server and client
+3. **Match field types** - Use compatible types:
+   - `Identity` (server) → `String` (client, as hex string)
+   - `Timestamp` (server) → Not directly accessible on client
+   - `u64`, `String`, `f32`, etc. → Same on both sides
+   - `Vec<T>` → Same on both sides
+
+4. **No automatic code generation for Rust** - SpacetimeDB's `generate` command creates TypeScript bindings. You can:
+   - Reference the TypeScript bindings to see field types
+   - Manually create matching Rust structs
+   - Keep your types in sync manually
+
+Example workflow:
+```bash
+# Generate TypeScript bindings (for reference)
+cd server
+spacetime generate --lang typescript --out-dir ../client-bindings
+
+# Look at client-bindings/player_type.ts to see the structure
+# Manually create matching Rust struct in your Bevy app
+```
+
 ### Quick Reference: define_reducer! Macro
 
 The `define_reducer!` macro creates a type-safe reducer definition:
@@ -232,8 +273,11 @@ fn handle_events(
     // Handle new rows
     for event in inserts.read() {
         info!("New player: {:?}", event.row);
-        if let Some(reducer_info) = &event.reducer_event {
-            info!("  Caused by: {}", reducer_info.reducer_name);
+        if let Some(reducer_name) = &event.reducer_name {
+            info!("  Caused by: {}", reducer_name);
+        }
+        if let Some(caller) = &event.caller_identity {
+            info!("  By user: {}", caller);
         }
     }
 
@@ -663,6 +707,29 @@ pub struct Player {
     pub id: u64,        // <-- Same type
     pub name: String,   // <-- Same type
 }
+```
+
+**Common type translation mistakes:**
+
+```rust
+// ❌ WRONG - Using Identity on client
+pub owner: Identity,  // This won't deserialize!
+
+// ✅ CORRECT - Identity becomes String
+pub owner: String,    // SpacetimeDB sends identity as hex string
+
+// ❌ WRONG - Field name doesn't match server
+pub player_name: String,  // Server has "name"
+
+// ✅ CORRECT - Field names must match exactly
+pub name: String,
+
+// ❌ WRONG - Missing #[derive(Serialize, Deserialize)]
+pub struct Player { ... }
+
+// ✅ CORRECT - Must be serializable
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Player { ... }
 ```
 
 ## Contributing
