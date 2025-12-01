@@ -1,4 +1,5 @@
 use crate::bridge::SpacetimeDBBridge;
+use crate::log_utils::{log_error, log_info};
 
 /// Trait for reducers that can be called on the SpacetimeDB server
 ///
@@ -34,7 +35,8 @@ pub trait Reducer: Send + Sync + 'static {
 /// Obtained via `StdbConnection::reducers()`.
 pub struct ReducerCaller<'a> {
     pub(crate) bridge: &'a SpacetimeDBBridge,
-    pub(crate) connection_id: u32,
+    /// The connection ID for this reducer caller
+    pub connection_id: u32,
 }
 
 impl<'a> ReducerCaller<'a> {
@@ -66,14 +68,10 @@ impl<'a> ReducerCaller<'a> {
             match wasm_bindgen_futures::JsFuture::from(promise).await
             {
                 Ok(_) => {
-                    web_sys::console::log_1(
-                        &format!("Called reducer: {}", reducer_name).into(),
-                    );
+                    log_info(format!("Called reducer: {}", reducer_name));
                 }
                 Err(e) => {
-                    web_sys::console::error_1(
-                        &format!("Failed to call reducer {}: {:?}", reducer_name, e).into(),
-                    );
+                    log_error(format!("Failed to call reducer {}: {:?}", reducer_name, e));
                 }
             }
         });

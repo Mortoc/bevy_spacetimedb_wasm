@@ -1,5 +1,6 @@
 use crate::{
-    bridge::get_bridge, AddEventChannelAppExtensions, StdbConnectedEvent,
+    bridge::get_bridge, log_utils::{log_error, log_info},
+    AddEventChannelAppExtensions, StdbConnectedEvent,
     StdbConnectionErrorEvent, StdbDisconnectedEvent, StdbConnection,
     tables::TableConfig,
 };
@@ -109,28 +110,37 @@ impl StdbPlugin {
 impl Plugin for StdbPlugin {
     fn build(&self, app: &mut App) {
         // Validate configuration
-        let uri = self
-            .uri
-            .as_ref()
-            .expect("No URI set for StdbPlugin. Set it with .with_uri()");
-        let module_name = self
-            .module_name
-            .as_ref()
-            .expect("No module name set for StdbPlugin. Set it with .with_module_name()");
+        let uri = match self.uri.as_ref() {
+            Some(uri) => uri,
+            None => {
+                log_error("StdbPlugin error: No URI set. Use .with_uri() to configure the plugin");
+                return;
+            }
+        };
+        let module_name = match self.module_name.as_ref() {
+            Some(name) => name,
+            None => {
+                log_error("StdbPlugin error: No module name set. Use .with_module_name() to configure the plugin");
+                return;
+            }
+        };
 
         // Get the JavaScript bridge
-        let bridge = get_bridge();
+        let bridge = match get_bridge() {
+            Ok(bridge) => bridge,
+            Err(e) => {
+                log_error(format!("StdbPlugin failed to initialize: {}", e));
+                return;
+            }
+        };
 
         // Create the connection
         let connection_id = bridge.create_connection(uri, module_name, self.auth_token.clone());
 
-        web_sys::console::log_1(
-            &format!(
-                "Created SpacetimeDB connection {} to {}/{}",
-                connection_id, uri, module_name
-            )
-            .into(),
-        );
+        log_info(format!(
+            "Created SpacetimeDB connection {} to {}/{}",
+            connection_id, uri, module_name
+        ));
 
         // Setup connection lifecycle event channels
         let (connected_send, connected_recv) = std::sync::mpsc::channel::<StdbConnectedEvent>();
@@ -174,32 +184,79 @@ impl Plugin for StdbPlugin {
         disconnected_cb.forget();
         error_cb.forget();
 
-        // Setup table subscriptions
+        // Prepare table subscriptions (create callbacks and channels) but don't subscribe yet
+        let mut prepared_subscriptions = Vec::new();
         for table_config in &self.table_configs {
-            (table_config.setup_fn)(&bridge, connection_id, &table_config.events, app);
+            let prepared = (table_config.prepare_fn)(&bridge, &table_config.events, app);
+            prepared_subscriptions.push(prepared);
         }
 
-        // Create and insert the connection resource
+        // Create and insert the connection resource BEFORE connecting
         let connection = StdbConnection::new(bridge.clone(), connection_id);
         app.insert_resource(connection);
 
-        // Connect to the server asynchronously
+        // Connect to the server asynchronously, then subscribe to tables
         wasm_bindgen_futures::spawn_local(async move {
-            web_sys::console::log_1(
-                &format!("Connecting to SpacetimeDB connection {}...", connection_id).into(),
-            );
+            log_info(format!("Connecting to SpacetimeDB connection {}...", connection_id));
 
             match wasm_bindgen_futures::JsFuture::from(bridge.connect(connection_id)).await {
                 Ok(_) => {
-                    web_sys::console::log_1(
-                        &format!("Successfully connected to SpacetimeDB (connection {})", connection_id)
-                            .into(),
-                    );
+                    log_info(format!("Successfully connected to SpacetimeDB (connection {})", connection_id));
+
+                    // Give the SDK a moment to sync the module schema
+                    // The SDK needs time to load table definitions after connection
+                    // If delay fails, we proceed immediately (non-critical)
+                    let delay_result = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _| {
+                        if let Some(window) = web_sys::window() {
+                            if let Err(e) = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100) {
+                                log_error(format!("Failed to set timeout for schema sync delay: {:?}", e));
+                                // Resolve immediately if timeout fails
+                                let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+                            }
+                        } else {
+                            log_error("Window not available for schema sync delay".to_string());
+                            // Resolve immediately if window not available
+                            let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+                        }
+                    })).await;
+
+                    if let Err(e) = delay_result {
+                        log_error(format!("Schema sync delay failed: {:?}", e));
+                        // Continue anyway - delay is non-critical
+                    }
+
+                    // NOW subscribe to tables (after connection is established and schema synced)
+                    // The callbacks and channels are already set up, we just need to call subscribe_table
+                    for prepared in prepared_subscriptions {
+                        let result = wasm_bindgen_futures::JsFuture::from(bridge.subscribe_table(
+                            connection_id,
+                            &prepared.table_name,
+                            prepared.insert_callback_id,
+                            prepared.update_callback_id,
+                            prepared.delete_callback_id,
+                        )).await;
+
+                        match result {
+                            Ok(_) => {
+                                log_info(format!(
+                                    "Subscribed to table {} (insert: {}, update: {}, delete: {})",
+                                    prepared.table_name,
+                                    prepared.insert_callback_id.is_some(),
+                                    prepared.update_callback_id.is_some(),
+                                    prepared.delete_callback_id.is_some()
+                                ));
+                            }
+                            Err(e) => {
+                                log_error(format!(
+                                    "Failed to subscribe to table {}: {:?}",
+                                    prepared.table_name, e
+                                ));
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
-                    web_sys::console::error_1(
-                        &format!("Failed to connect to SpacetimeDB: {:?}", e).into(),
-                    );
+                    log_error(format!("Failed to connect to SpacetimeDB: {:?}", e));
                 }
             }
         });

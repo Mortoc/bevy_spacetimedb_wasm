@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Standalone SDK Test</title>
+</head>
+<body>
+    <h1>Standalone SDK Test</h1>
+    <div id="log"></div>
+
+    <script type="module">
+        import { DbConnection } from './generated/index.js';
+
+        const log = (msg) => {
+            const timestamp = new Date().toISOString().split('T')[1];
+            console.log(`[${timestamp}] ${msg}`);
+            document.getElementById('log').innerHTML += `<div>[${timestamp}] ${msg}</div>`;
+        };
+
+        log('🚀 Starting standalone SDK test...');
+
+        const conn = DbConnection.builder()
+            .withUri('http://localhost:3000')
+            .withModuleName('test-module')
+            .onConnect((connection, identity, token) => {
+                log(`✅ Connected! Identity: ${identity.toHexString()}`);
+
+                // Step 1: Register onInsert handler FIRST
+                log('📝 Registering onInsert handler...');
+                connection.db.testPlayer.onInsert((ctx, row) => {
+                    log(`🎉 INSERT EVENT FIRED! Row: ${JSON.stringify(row)}`);
+                });
+                log('✅ Handler registered');
+
+                // Step 2: Subscribe to all tables
+                log('📋 Subscribing to all tables...');
+                connection.subscriptionBuilder()
+                    .onApplied(() => {
+                        log('✅ Subscription applied');
+                        log(`   Table count: ${connection.db.testPlayer.count()}`);
+
+                        // Step 3: Call a reducer to insert a row
+                        log('📤 Calling createPlayer reducer...');
+                        connection.reducers.createPlayer(777, 'StandaloneTest')
+                            .then(() => {
+                                log('✅ Reducer called successfully');
+                                log('⏳ Waiting for insert event...');
+                            })
+                            .catch(err => log(`❌ Reducer error: ${err}`));
+                    })
+                    .onError((ctx, error) => {
+                        log(`❌ Subscription error: ${error}`);
+                    })
+                    .subscribeToAllTables();
+            })
+            .onConnectError((ctx, error) => {
+                log(`❌ Connection error: ${error}`);
+            })
+            .build();
+
+        log('Connection building complete');
+    </script>
+</body>
+</html>

@@ -22,15 +22,27 @@ compile_error!(
 mod bridge;
 mod channel_receiver;
 mod events;
+mod identity;
+mod log_utils;
 mod plugin;
 mod reducers;
 mod stdb_connection;
 mod tables;
+pub mod table_events;
+pub mod test_helpers;
+
+#[cfg(target_arch = "wasm32")]
+pub mod test_bridge_loader;
 
 pub use bridge::get_bridge;
 pub use channel_receiver::AddEventChannelAppExtensions;
 pub use events::*;
+pub use identity::{Identity, IdentityError, Timestamp};
 pub use plugin::*;
 pub use reducers::*;
-pub use stdb_connection::*;
+pub use stdb_connection::{StdbConnection, ConnectionState};
 pub use tables::*;
+pub use table_events::{AddTableEvents, InsertEvent, UpdateEvent, DeleteEvent};
+
+#[cfg(target_arch = "wasm32")]
+pub use test_bridge_loader::init_test_bridge;

@@ -63,6 +63,7 @@ extern "C" {
     ) -> js_sys::Promise;
 
     /// Subscribe to table events
+    /// Returns a Promise that resolves when the subscription is applied and event handlers are registered
     #[wasm_bindgen(method, js_name = subscribeTable)]
     pub fn subscribe_table(
         this: &SpacetimeDBBridge,
@@ -71,7 +72,7 @@ extern "C" {
         on_insert_id: Option<u32>,
         on_update_id: Option<u32>,
         on_delete_id: Option<u32>,
-    );
+    ) -> js_sys::Promise;
 
     /// Register a JavaScript callback
     #[wasm_bindgen(method, js_name = registerCallback)]
@@ -80,15 +81,31 @@ extern "C" {
     /// Unregister a callback
     #[wasm_bindgen(method, js_name = unregisterCallback)]
     pub fn unregister_callback(this: &SpacetimeDBBridge, callback_id: u32);
+
+    /// Get the identity for a connection
+    /// Returns hex-encoded identity (64 hex chars) or null if not connected
+    #[wasm_bindgen(method, js_name = getIdentity)]
+    pub fn get_identity(this: &SpacetimeDBBridge, connection_id: u32) -> Option<String>;
+
+    /// Get the authentication token for a connection
+    /// Returns token string or null if not available
+    #[wasm_bindgen(method, js_name = getToken)]
+    pub fn get_token(this: &SpacetimeDBBridge, connection_id: u32) -> Option<String>;
+
+    /// Get connection state
+    /// Returns 'disconnected', 'connecting', or 'connected'
+    #[wasm_bindgen(method, js_name = getConnectionState)]
+    pub fn get_connection_state(this: &SpacetimeDBBridge, connection_id: u32) -> String;
 }
 
-/// Get the global SpacetimeDB bridge instance
+/// Get the global SpacetimeDB bridge instance from the browser window
 ///
 /// # Panics
 ///
 /// Panics with a helpful error message if the bridge is not initialized.
-/// The bridge must be initialized in JavaScript before loading the WASM module:
+/// The bridge must be initialized in JavaScript before loading the WASM module.
 ///
+/// For production use:
 /// ```html
 /// <script type="module">
 ///   import { SpacetimeDBBridge } from './js/spacetimedb-bridge.js';
@@ -99,40 +116,34 @@ extern "C" {
 ///   await init();
 /// </script>
 /// ```
-pub fn get_bridge() -> SpacetimeDBBridge {
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_namespace = global, js_name = __SPACETIMEDB_BRIDGE__)]
-        static BRIDGE_GLOBAL: JsValue;
-    }
+///
+/// For tests: Call `test_bridge_init::init_test_bridge()` before running tests.
+pub fn get_bridge() -> Result<SpacetimeDBBridge, String> {
+    // Get browser window (required - we only support browser environments)
+    let window = web_sys::window().ok_or_else(|| {
+        "Failed to get window - browser environment required. \
+        This library only works in WASM browser environments.".to_string()
+    })?;
 
-    // Try browser window first
-    if let Some(window) = web_sys::window() {
-        if let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("__SPACETIMEDB_BRIDGE__")) {
-            if !bridge.is_undefined() && !bridge.is_null() {
-                return bridge.unchecked_into();
-            }
+    if let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("__SPACETIMEDB_BRIDGE__")) {
+        if !bridge.is_undefined() && !bridge.is_null() {
+            return Ok(bridge.unchecked_into());
         }
     }
 
-    // Try Node.js global
-    if !BRIDGE_GLOBAL.is_undefined() && !BRIDGE_GLOBAL.is_null() {
-        return BRIDGE_GLOBAL.clone().unchecked_into();
-    }
-
-    panic!(
+    Err(
         "\n\n\
         ╔══════════════════════════════════════════════════════════════════════════════╗\n\
-        ║ SpacetimeDB TypeScript SDK Bridge Not Found!                                ║\n\
+        ║ SpacetimeDB Bridge Not Found!                                               ║\n\
         ╠══════════════════════════════════════════════════════════════════════════════╣\n\
         ║                                                                              ║\n\
-        ║ The bevy_spacetimedb_wasm plugin requires the SpacetimeDB TypeScript SDK    ║\n\
-        ║ bridge to be loaded and initialized BEFORE the WASM module loads.           ║\n\
+        ║ The bevy_spacetimedb_wasm plugin requires the SpacetimeDB bridge to be      ║\n\
+        ║ loaded and initialized BEFORE the WASM module loads.                        ║\n\
         ║                                                                              ║\n\
-        ║ For browser environments, add this to your HTML file:                       ║\n\
+        ║ For production use, add this to your HTML file:                             ║\n\
         ║                                                                              ║\n\
         ║   <script type=\"module\">                                                    ║\n\
-        ║     import {{ SpacetimeDBBridge }} from './js/spacetimedb-bridge.js';        ║\n\
+        ║     import { SpacetimeDBBridge } from './js/spacetimedb-bridge.js';        ║\n\
         ║     window.__SPACETIMEDB_BRIDGE__ = new SpacetimeDBBridge();                ║\n\
         ║                                                                              ║\n\
         ║     // THEN load your WASM module                                           ║\n\
@@ -140,27 +151,12 @@ pub fn get_bridge() -> SpacetimeDBBridge {
         ║     await init();                                                           ║\n\
         ║   </script>                                                                 ║\n\
         ║                                                                              ║\n\
-        ║ For Node.js/test environments:                                              ║\n\
-        ║   global.__SPACETIMEDB_BRIDGE__ = new SpacetimeDBBridge();                 ║\n\
+        ║ For tests: Call test_bridge_init::init_test_bridge() at the start of your  ║\n\
+        ║ test to initialize the bridge automatically.                                ║\n\
         ║                                                                              ║\n\
         ║ The bridge file should be at: bevy_spacetimedb/js/spacetimedb-bridge.js    ║\n\
         ║                                                                              ║\n\
-        ╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
+        ╚══════════════════════════════════════════════════════════════════════════════╝\n\n".to_string()
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn test_bridge_available() {
-        // This test will fail if run without the bridge loaded
-        // In a real test environment, you'd need to load the bridge first
-        // For now, this serves as documentation
-        let _bridge = get_bridge();
-    }
-}

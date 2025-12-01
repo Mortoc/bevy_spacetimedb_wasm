@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:spacetimedb.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(find:*)",
+      "Bash(spacetime generate --help:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

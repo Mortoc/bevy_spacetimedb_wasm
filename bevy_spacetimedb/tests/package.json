@@ -3,7 +3,19 @@
   "version": "0.1.0",
   "description": "Test dependencies for bevy_spacetimedb_wasm",
   "private": true,
+  "type": "module",
   "dependencies": {
-    "ws": "^8.0.0"
+    "brotli": "^1.3.3",
+    "brotli-dec-wasm": "^2.3.0",
+    "spacetimedb": "~1.9.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0",
+    "playwright": "^1.40.0"
+  },
+  "scripts": {
+    "build-bridge": "node build-bridge.js",
+    "test": "node build-bridge.js && node run_browser_test.js",
+    "test:browser": "node run_browser_test.js"
   }
 }

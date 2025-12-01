@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manual SDK Event Handler Test</title>
+    <meta charset="utf-8">
+</head>
+<body>
+    <h1>Manual SDK Event Handler Test</h1>
+    <div id="log"></div>
+
+    <script type="module">
+        import { DbConnection } from './generated/index.js';
+
+        const log = msg => {
+            const div = document.getElementById('log');
+            div.innerHTML += `<div>${new Date().toISOString()} - ${msg}</div>`;
+            console.log(msg);
+        };
+
+        async function test() {
+            try {
+                log('Creating connection...');
+                const conn = DbConnection.builder()
+                    .withUri('http://localhost:3000')
+                    .withModuleName('test-module')
+                    .build();
+
+                // Set up connection handlers
+                conn.onConnect((ctx, identity, token) => {
+                    log(`✓ Connected! Identity: ${identity.toHexString().substring(0, 16)}...`);
+                });
+
+                conn.onConnectError((ctx, error) => {
+                    log(`❌ Connection error: ${error}`);
+                });
+
+                log('Setting up subscription...');
+                let insertCount = 0;
+
+                // Subscribe to all tables and set up event handler
+                const sub = conn.subscriptionBuilder()
+                    .onApplied((ctx) => {
+                        log('✓ Subscription applied!');
+                        log(`Tables in db: ${Object.keys(conn.db).join(', ')}`);
+
+                        // Check if testPlayer table exists
+                        if (conn.db.testPlayer) {
+                            log(`✓ testPlayer table found, count: ${conn.db.testPlayer.count()}`);
+
+                            // Register insert handler
+                            conn.db.testPlayer.onInsert((ctx, row) => {
+                                insertCount++;
+                                log(`📥 INSERT EVENT #${insertCount}: ${JSON.stringify(row)}`);
+                                log(`   Event context: ${JSON.stringify(ctx.event)}`);
+                            });
+
+                            log('✓ onInsert handler registered');
+
+                            // Now call reducer to create a player
+                            log('Calling create_player reducer...');
+                            conn.callReducer('create_player', 888, 'ManualTestPlayer')
+                                .then(() => {
+                                    log('✓ Reducer called successfully');
+                                })
+                                .catch(err => {
+                                    log(`❌ Reducer call failed: ${err}`);
+                                });
+                        } else {
+                            log('❌ testPlayer table not found!');
+                        }
+                    })
+                    .onError((ctx, error) => {
+                        log(`❌ Subscription error: ${error}`);
+                    })
+                    .subscribeToAllTables();
+
+                log('Subscription initiated');
+
+            } catch (error) {
+                log(`❌ Error: ${error}`);
+                console.error(error);
+            }
+        }
+
+        test();
+    </script>
+</body>
+</html>

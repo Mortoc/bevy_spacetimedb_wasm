@@ -1,0 +1,393 @@
+//! Integration tests for reducer commands pattern
+//!
+//! These tests verify that reducers can be called via Bevy's Commands API,
+//! providing an ECS-friendly way to invoke SpacetimeDB reducers.
+//!
+//! REQUIREMENTS:
+//! 1. SpacetimeDB server running on localhost:3000
+//! 2. Test module published: bevy-spacetimedb-test-module
+//! 3. TypeScript bindings generated in tests/generated/
+
+use wasm_bindgen_test::*;
+use bevy::prelude::*;
+use bevy_spacetimedb_wasm::*;
+use wasm_bindgen_futures::JsFuture;
+use std::sync::{Arc, Mutex};
+use serde::Serialize;
+
+/// Test reducer - creates a player
+#[derive(Debug, Clone, Serialize)]
+struct CreatePlayer {
+    id: u32,
+    name: String,
+}
+
+impl Reducer for CreatePlayer {
+    const NAME: &'static str = "create_player";
+}
+
+/// Test reducer - updates a player's name
+#[derive(Debug, Clone, Serialize)]
+struct UpdatePlayer {
+    id: u32,
+    new_name: String,
+}
+
+impl Reducer for UpdatePlayer {
+    const NAME: &'static str = "update_player";
+}
+
+/// Test reducer - deletes a player
+#[derive(Debug, Clone, Serialize)]
+struct DeletePlayer {
+    id: u32,
+}
+
+impl Reducer for DeletePlayer {
+    const NAME: &'static str = "delete_player";
+}
+
+/// Test that basic reducer call works via Commands
+#[wasm_bindgen_test]
+async fn test_basic_reducer_call() {
+    web_sys::console::log_1(&"TEST: Basic Reducer Call via Commands".into());
+
+    let mut app = App::new();
+
+    // Track whether reducer was called
+    let reducer_called = Arc::new(Mutex::new(false));
+    let reducer_called_clone = reducer_called.clone();
+
+    // Set up Bevy app
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SpacetimeDBPlugin);
+
+    // Connect to SpacetimeDB
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Failed to connect");
+
+    // Insert connection resource so commands can access it
+    app.insert_resource(StdbConnection::new(bridge.clone(), connection_id));
+
+    // System that calls a reducer via commands
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut called = reducer_called_clone.lock().unwrap();
+        if !*called {
+            *called = true;
+
+            // THIS IS THE KEY API - call reducer via Commands
+            commands.call_reducer(CreatePlayer {
+                id: 888,
+                name: "CommandsTestPlayer".to_string(),
+            });
+
+            web_sys::console::log_1(&"Called reducer via commands.call_reducer()".into());
+        }
+    });
+
+    // Run the system
+    app.update();
+
+    // Give time for reducer to execute on server
+    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+            .unwrap();
+    }))
+    .await
+    .unwrap();
+
+    // Verify reducer was called
+    assert!(*reducer_called.lock().unwrap(), "Reducer should have been called");
+
+    web_sys::console::log_1(&"✓ Reducer called via Commands API".into());
+
+    // Cleanup
+    let cleanup_args = js_sys::Array::new();
+    cleanup_args.push(&wasm_bindgen::JsValue::from(888_u32));
+    let _ = JsFuture::from(bridge.call_reducer(
+        connection_id,
+        "delete_player",
+        wasm_bindgen::JsValue::from(cleanup_args)
+    )).await;
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that multiple reducers can be queued
+#[wasm_bindgen_test]
+async fn test_multiple_reducer_calls() {
+    web_sys::console::log_1(&"TEST: Multiple Reducer Calls".into());
+
+    let mut app = App::new();
+
+    // Track number of calls
+    let call_count = Arc::new(Mutex::new(0));
+    let call_count_clone = call_count.clone();
+
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SpacetimeDBPlugin);
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Failed to connect");
+
+    app.insert_resource(StdbConnection::new(bridge.clone(), connection_id));
+
+    // System that calls multiple reducers
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut count = call_count_clone.lock().unwrap();
+        if *count == 0 {
+            *count = 3;
+
+            // Call multiple reducers in sequence
+            commands.call_reducer(CreatePlayer {
+                id: 887,
+                name: "Player1".to_string(),
+            });
+
+            commands.call_reducer(CreatePlayer {
+                id: 886,
+                name: "Player2".to_string(),
+            });
+
+            commands.call_reducer(CreatePlayer {
+                id: 885,
+                name: "Player3".to_string(),
+            });
+
+            web_sys::console::log_1(&"Queued 3 reducer calls".into());
+        }
+    });
+
+    app.update();
+
+    // Give time for all reducers to execute
+    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _reject| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 200)
+            .unwrap();
+    }))
+    .await
+    .unwrap();
+
+    web_sys::console::log_1(&"✓ Multiple reducers queued successfully".into());
+
+    // Cleanup
+    for id in [887, 886, 885] {
+        let cleanup_args = js_sys::Array::new();
+        cleanup_args.push(&wasm_bindgen::JsValue::from(id));
+        let _ = JsFuture::from(bridge.call_reducer(
+            connection_id,
+            "delete_player",
+            wasm_bindgen::JsValue::from(cleanup_args)
+        )).await;
+    }
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that reducer calls work from any system
+#[wasm_bindgen_test]
+async fn test_reducer_from_any_system() {
+    web_sys::console::log_1(&"TEST: Reducer Call from Any System".into());
+
+    let mut app = App::new();
+
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SpacetimeDBPlugin);
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Failed to connect");
+
+    app.insert_resource(StdbConnection::new(bridge.clone(), connection_id));
+
+    // Multiple systems can call reducers
+    let called_from_system1 = Arc::new(Mutex::new(false));
+    let called_from_system2 = Arc::new(Mutex::new(false));
+
+    let clone1 = called_from_system1.clone();
+    let clone2 = called_from_system2.clone();
+
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut called = clone1.lock().unwrap();
+        if !*called {
+            *called = true;
+            commands.call_reducer(CreatePlayer {
+                id: 884,
+                name: "FromSystem1".to_string(),
+            });
+        }
+    });
+
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut called = clone2.lock().unwrap();
+        if !*called {
+            *called = true;
+            commands.call_reducer(CreatePlayer {
+                id: 883,
+                name: "FromSystem2".to_string(),
+            });
+        }
+    });
+
+    app.update();
+
+    // Verify both systems called their reducers
+    assert!(*called_from_system1.lock().unwrap(), "System 1 should have called reducer");
+    assert!(*called_from_system2.lock().unwrap(), "System 2 should have called reducer");
+
+    web_sys::console::log_1(&"✓ Reducers work from multiple systems".into());
+
+    // Cleanup
+    for id in [884, 883] {
+        let cleanup_args = js_sys::Array::new();
+        cleanup_args.push(&wasm_bindgen::JsValue::from(id));
+        let _ = JsFuture::from(bridge.call_reducer(
+            connection_id,
+            "delete_player",
+            wasm_bindgen::JsValue::from(cleanup_args)
+        )).await;
+    }
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that different reducer types can be called
+#[wasm_bindgen_test]
+async fn test_different_reducer_types() {
+    web_sys::console::log_1(&"TEST: Different Reducer Types".into());
+
+    let mut app = App::new();
+
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SpacetimeDBPlugin);
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Failed to connect");
+
+    app.insert_resource(StdbConnection::new(bridge.clone(), connection_id));
+
+    let executed = Arc::new(Mutex::new(false));
+    let executed_clone = executed.clone();
+
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut exec = executed_clone.lock().unwrap();
+        if !*exec {
+            *exec = true;
+
+            // Create, update, delete - different reducer types
+            commands.call_reducer(CreatePlayer {
+                id: 882,
+                name: "TypeTest".to_string(),
+            });
+
+            commands.call_reducer(UpdatePlayer {
+                id: 882,
+                new_name: "TypeTestUpdated".to_string(),
+            });
+
+            commands.call_reducer(DeletePlayer {
+                id: 882,
+            });
+
+            web_sys::console::log_1(&"Called create, update, and delete reducers".into());
+        }
+    });
+
+    app.update();
+
+    web_sys::console::log_1(&"✓ Different reducer types all callable".into());
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that reducer arguments are serialized correctly
+#[wasm_bindgen_test]
+async fn test_reducer_argument_serialization() {
+    web_sys::console::log_1(&"TEST: Reducer Argument Serialization".into());
+
+    let mut app = App::new();
+
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SpacetimeDBPlugin);
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Failed to connect");
+
+    app.insert_resource(StdbConnection::new(bridge.clone(), connection_id));
+
+    let called = Arc::new(Mutex::new(false));
+    let called_clone = called.clone();
+
+    app.add_systems(Update, move |mut commands: Commands| {
+        let mut c = called_clone.lock().unwrap();
+        if !*c {
+            *c = true;
+
+            // Test with special characters and edge cases
+            commands.call_reducer(CreatePlayer {
+                id: 881,
+                name: "Test🎮Player-123_ñ".to_string(),
+            });
+
+            web_sys::console::log_1(&"Called reducer with special characters in name".into());
+        }
+    });
+
+    app.update();
+
+    web_sys::console::log_1(&"✓ Arguments serialized correctly".into());
+
+    // Cleanup
+    let cleanup_args = js_sys::Array::new();
+    cleanup_args.push(&wasm_bindgen::JsValue::from(881_u32));
+    let _ = JsFuture::from(bridge.call_reducer(
+        connection_id,
+        "delete_player",
+        wasm_bindgen::JsValue::from(cleanup_args)
+    )).await;
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}

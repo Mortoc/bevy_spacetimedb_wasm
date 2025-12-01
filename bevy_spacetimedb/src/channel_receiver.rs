@@ -3,6 +3,7 @@
 // side is bevy's EventReader<T>, and it automatically bridges between the two.
 
 use bevy::prelude::*;
+use crate::log_utils::log_error;
 use std::sync::Mutex;
 use std::sync::mpsc::Receiver;
 
@@ -36,7 +37,13 @@ fn channel_to_event<T: 'static + Send + Sync + Message>(
 ) {
     // this should be the only system working with the receiver,
     // thus we always expect to get this lock
-    let events = receiver.lock().expect("unable to acquire mutex lock");
+    let events = match receiver.lock() {
+        Ok(events) => events,
+        Err(e) => {
+            log_error(format!("Failed to acquire channel receiver lock: {}", e));
+            return;
+        }
+    };
 
     writer.write_batch(events.try_iter());
 }

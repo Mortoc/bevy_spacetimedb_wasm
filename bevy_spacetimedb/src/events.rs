@@ -21,29 +21,6 @@ pub struct StdbConnectionErrorEvent {
     pub err: String,
 }
 
-/// An event that is triggered when a row is inserted into a table.
-#[derive(Message, Debug, Clone)]
-pub struct InsertEvent<T> {
-    /// The row that was inserted.
-    pub row: T,
-}
-
-/// An event that is triggered when a row is deleted from a table.
-#[derive(Message, Debug, Clone)]
-pub struct DeleteEvent<T> {
-    /// The row that was deleted.
-    pub row: T,
-}
-
-/// An event that is triggered when a row is updated in a table.
-#[derive(Message, Debug, Clone)]
-pub struct UpdateEvent<T> {
-    /// The old row.
-    pub old: T,
-    /// The new row.
-    pub new: T,
-}
-
 /// An event that is triggered when a row is inserted or updated in a table.
 #[derive(Message, Debug, Clone)]
 pub struct InsertUpdateEvent<T> {

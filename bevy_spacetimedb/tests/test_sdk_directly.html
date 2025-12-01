@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Direct SDK Test - No Rust</title>
+    <meta charset="utf-8">
+</head>
+<body>
+    <h1>Direct SDK Test (No Rust/WASM involved)</h1>
+    <button onclick="runTest()">Run Test</button>
+    <div id="log" style="font-family: monospace; white-space: pre;"></div>
+
+    <script type="module">
+        import { DbConnection } from './generated/index.js';
+
+        window.log = msg => {
+            const div = document.getElementById('log');
+            const time = new Date().toISOString().substring(11, 23);
+            div.innerHTML += `[${time}] ${msg}\n`;
+            console.log(msg);
+        };
+
+        window.runTest = async function() {
+            document.getElementById('log').innerHTML = '';
+            log('=== Starting Direct SDK Test ===\n');
+
+            try {
+                // Create connection
+                log('1. Creating connection...');
+                const conn = DbConnection.builder()
+                    .withUri('http://localhost:3000')
+                    .withModuleName('test-module')
+                    .build();
+
+                // Wait for connection
+                await new Promise((resolve, reject) => {
+                    conn.onConnect((ctx, identity, token) => {
+                        log(`2. ✓ Connected! Identity: ${identity.toHexString().substring(0, 16)}...`);
+                        resolve();
+                    });
+                    conn.onConnectError((ctx, error) => {
+                        log(`2. ❌ Connection failed: ${error}`);
+                        reject(error);
+                    });
+                });
+
+                // Subscribe and set up event handler
+                log('3. Subscribing to all tables...');
+                let insertEventCount = 0;
+                let updateEventCount = 0;
+                let deleteEventCount = 0;
+
+                await new Promise((resolve, reject) => {
+                    conn.subscriptionBuilder()
+                        .onApplied((ctx) => {
+                            log('4. ✓ Subscription applied!');
+                            log(`   Tables available: ${Object.keys(conn.db).join(', ')}`);
+
+                            if (conn.db.testPlayer) {
+                                log(`   testPlayer exists, current count: ${conn.db.testPlayer.count()}`);
+
+                                // Register event handlers
+                                conn.db.testPlayer.onInsert((ctx, row) => {
+                                    insertEventCount++;
+                                    log(`📥 INSERT EVENT #${insertEventCount}:`);
+                                    log(`   Row: ${JSON.stringify(row)}`);
+                                    log(`   Event tag: ${ctx.event.tag}`);
+                                    if (ctx.event.tag === 'Reducer') {
+                                        log(`   Reducer: ${ctx.event.value.reducer.name}`);
+                                    }
+                                });
+
+                                conn.db.testPlayer.onUpdate((ctx, oldRow, newRow) => {
+                                    updateEventCount++;
+                                    log(`🔄 UPDATE EVENT #${updateEventCount}:`);
+                                    log(`   Old: ${JSON.stringify(oldRow)}`);
+                                    log(`   New: ${JSON.stringify(newRow)}`);
+                                });
+
+                                conn.db.testPlayer.onDelete((ctx, row) => {
+                                    deleteEventCount++;
+                                    log(`🗑️ DELETE EVENT #${deleteEventCount}:`);
+                                    log(`   Row: ${JSON.stringify(row)}`);
+                                });
+
+                                log('5. ✓ Event handlers registered\n');
+                                resolve();
+                            } else {
+                                reject(new Error('testPlayer table not found'));
+                            }
+                        })
+                        .onError((ctx, error) => {
+                            log(`❌ Subscription error: ${error}`);
+                            reject(error);
+                        })
+                        .subscribeToAllTables();
+                });
+
+                // Wait a moment for everything to settle
+                await new Promise(r => setTimeout(r, 500));
+
+                // Call create_player reducer
+                log('6. Calling create_player reducer (id=777, name="SDKTest")...');
+                conn.callReducer('create_player', 777, 'SDKTest');
+                log('   Reducer call sent (fire-and-forget)\n');
+
+                // Wait for events to arrive
+                log('7. Waiting 2 seconds for events...');
+                await new Promise(r => setTimeout(r, 2000));
+
+                log(`\n=== Results ===`);
+                log(`Insert events received: ${insertEventCount}`);
+                log(`Update events received: ${updateEventCount}`);
+                log(`Delete events received: ${deleteEventCount}`);
+
+                if (insertEventCount > 0) {
+                    log('\n✅ SUCCESS! SDK table events ARE working!');
+                } else {
+                    log('\n❌ PROBLEM! No insert events received even though reducer was called.');
+                    log('   This suggests either:');
+                    log('   1. SDK 1.9 has a bug with table events');
+                    log('   2. We need to use generated reducer methods instead of callReducer()');
+                    log('   3. There\'s a timing or configuration issue');
+                }
+
+                // Cleanup
+                log('\n8. Calling delete_player to cleanup...');
+                conn.callReducer('delete_player', 777);
+                await new Promise(r => setTimeout(r, 1000));
+
+            } catch (error) {
+                log(`\n❌ ERROR: ${error}`);
+                console.error(error);
+            }
+        };
+
+        log('Page loaded. Click "Run Test" button to start.\n');
+    </script>
+</body>
+</html>

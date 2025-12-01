@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpacetimeDB Bridge - Browser Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        .loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-left: 4px solid #0066cc;
+            margin: 20px 0;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌐 SpacetimeDB Bridge Test</h1>
+        <p>Testing browser bundle loading...</p>
+
+        <div id="status" class="status loading">
+            ⏳ Loading bridge bundle...
+        </div>
+
+        <div class="info">
+            <strong>ℹ️ Check Browser Console</strong>
+            <p>Open your browser's developer console (F12) to see detailed logs.</p>
+        </div>
+
+        <div id="details"></div>
+    </div>
+
+    <script type="module">
+        const statusEl = document.getElementById('status');
+        const detailsEl = document.getElementById('details');
+
+        function setStatus(message, type) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        function addDetail(html) {
+            detailsEl.innerHTML += html;
+        }
+
+        try {
+            console.log('🔍 Attempting to load SpacetimeDB bridge bundle...');
+
+            // Import the bundle
+            const module = await import('./dist/spacetimedb-bridge.bundle.js');
+            console.log('✅ Bundle loaded successfully');
+            console.log('📦 Module exports:', Object.keys(module));
+
+            // Check for SpacetimeDBBridge
+            if (!module.SpacetimeDBBridge) {
+                throw new Error('SpacetimeDBBridge not found in bundle exports');
+            }
+            console.log('✅ SpacetimeDBBridge found');
+
+            // Instantiate the bridge
+            const bridge = new module.SpacetimeDBBridge();
+            console.log('✅ Bridge instantiated:', bridge);
+
+            // Attach to window for WASM access
+            window.__SPACETIMEDB_BRIDGE__ = bridge;
+            console.log('✅ Bridge attached to window.__SPACETIMEDB_BRIDGE__');
+
+            // Test basic functionality
+            console.log('🧪 Testing bridge methods...');
+
+            // Register a test callback
+            const testCallback = () => console.log('Test callback fired');
+            const callbackId = bridge.registerCallback(testCallback);
+            console.log('✅ Callback registered with ID:', callbackId);
+
+            // Create a test connection (won't actually connect)
+            const connId = bridge.createConnection(
+                'ws://localhost:3000',
+                'test-module',
+                null
+            );
+            console.log('✅ Test connection created with ID:', connId);
+
+            // Success!
+            setStatus('✅ Bundle loaded and working correctly!', 'success');
+            addDetail(`
+                <h3>Test Results:</h3>
+                <ul>
+                    <li>✅ Bundle imported successfully</li>
+                    <li>✅ SpacetimeDBBridge exported</li>
+                    <li>✅ Bridge instantiated</li>
+                    <li>✅ Attached to <code>window.__SPACETIMEDB_BRIDGE__</code></li>
+                    <li>✅ Callback registration works (ID: ${callbackId})</li>
+                    <li>✅ Connection creation works (ID: ${connId})</li>
+                </ul>
+                <p><strong>🎉 The browser bundle is working correctly!</strong></p>
+            `);
+
+        } catch (error) {
+            console.error('❌ Error loading bridge:', error);
+            setStatus(`❌ Error: ${error.message}`, 'error');
+            addDetail(`
+                <h3>Error Details:</h3>
+                <pre>${error.stack || error.message}</pre>
+                <p>Make sure you've built the bundle:</p>
+                <code>cd bevy_spacetimedb/js && npm run build</code>
+            `);
+        }
+    </script>
+</body>
+</html>

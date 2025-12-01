@@ -1,0 +1,248 @@
+//! Integration tests for real SpacetimeDB connection
+//!
+//! These tests verify that the bridge works with a real SpacetimeDB SDK connection
+//! instead of the stub implementation.
+//!
+//! REQUIREMENTS:
+//! 1. SpacetimeDB server running on localhost:3000
+//! 2. Test module published: bevy-spacetimedb-test-module
+//! 3. node_setup.js configured to create real SDK connection
+
+use wasm_bindgen_test::*;
+use bevy_spacetimedb_wasm::*;
+use wasm_bindgen_futures::JsFuture;
+
+/// Test that the bridge can accept and use a real SDK connection
+#[wasm_bindgen_test]
+async fn test_real_sdk_connection_initialization() {
+    web_sys::console::log_1(&"TEST: Real SDK Connection Initialization".into());
+
+    let bridge = get_bridge();
+
+    // Create connection (bridge should use real SDK, not stub)
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    assert!(connection_id > 0, "Connection ID should be positive");
+
+    // Initial state should be Disconnected
+    let state_before = bridge.get_state(connection_id);
+    assert_eq!(state_before, 0, "Initial state should be Disconnected (0)");
+
+    web_sys::console::log_1(&"✓ Connection created with correct initial state".into());
+}
+
+/// Test that connection state transitions work correctly
+#[wasm_bindgen_test]
+async fn test_connection_state_transitions() {
+    web_sys::console::log_1(&"TEST: Connection State Transitions".into());
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    // State should be Disconnected initially
+    assert_eq!(bridge.get_state(connection_id), 0, "Should start Disconnected");
+
+    // Connect should transition through Connecting → Connected
+    let connect_promise = bridge.connect(connection_id);
+
+    // During connection, state might be Connecting (1)
+    let state_during = bridge.get_state(connection_id);
+    web_sys::console::log_1(&format!("State during connect: {}", state_during).into());
+
+    // Wait for connection to complete
+    JsFuture::from(connect_promise)
+        .await
+        .expect("Connection should succeed");
+
+    // After successful connection, state should be Connected (2)
+    let state_after = bridge.get_state(connection_id);
+    assert_eq!(state_after, 2, "Should be Connected (2) after connection succeeds");
+
+    web_sys::console::log_1(&"✓ State transitions worked correctly".into());
+
+    // Cleanup
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that identity is available after connection
+#[wasm_bindgen_test]
+async fn test_identity_available_after_connection() {
+    web_sys::console::log_1(&"TEST: Identity Available After Connection".into());
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    // Identity should be None before connection
+    let identity_before = bridge.get_identity(connection_id);
+    assert!(identity_before.is_none(), "Identity should be None before connection");
+
+    // Connect to server
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Connection should succeed");
+
+    // Identity should be available after connection
+    let identity_after = bridge.get_identity(connection_id);
+    assert!(identity_after.is_some(), "Identity should be available after connection");
+
+    let identity_bytes = identity_after.unwrap();
+    assert_eq!(identity_bytes.length(), 32, "Identity should be 32 bytes");
+
+    web_sys::console::log_1(&"✓ Identity available after connection".into());
+
+    // Cleanup
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that token is accessible if provided
+#[wasm_bindgen_test]
+async fn test_token_access_with_auth() {
+    web_sys::console::log_1(&"TEST: Token Access With Auth".into());
+
+    let bridge = get_bridge();
+
+    // Connect with a test token
+    let test_token = "test_auth_token_12345";
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        Some(test_token.to_string())
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Connection with token should succeed");
+
+    // Token should be available
+    let token = bridge.get_token(connection_id);
+    assert!(token.is_some(), "Token should be available");
+    assert_eq!(token.as_deref(), Some(test_token), "Token should match provided value");
+
+    web_sys::console::log_1(&"✓ Token accessible with authentication".into());
+
+    // Cleanup
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that anonymous connection has no token
+#[wasm_bindgen_test]
+async fn test_anonymous_connection_no_token() {
+    web_sys::console::log_1(&"TEST: Anonymous Connection Has No Token".into());
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None // No token
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Anonymous connection should succeed");
+
+    // Token should be None for anonymous connection
+    let token = bridge.get_token(connection_id);
+    assert!(token.is_none() || token == Some(String::new()), "Anonymous connection should have no token");
+
+    web_sys::console::log_1(&"✓ Anonymous connection has no token".into());
+
+    // Cleanup
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that table subscriptions create event handlers
+/// NOTE: This test will fail until we implement real SDK integration
+#[wasm_bindgen_test]
+async fn test_table_subscription_creates_handlers() {
+    web_sys::console::log_1(&"TEST: Table Subscription Creates Handlers".into());
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Connection should succeed");
+
+    // Register callbacks
+    let insert_callback = js_sys::Function::new_no_args("console.log('Insert callback')");
+    let insert_cb_id = bridge.register_callback(&insert_callback);
+
+    // Subscribe to test_player table
+    // This should work with real SDK connection (not stub)
+    bridge.subscribe_table(
+        connection_id,
+        "test_player",
+        Some(insert_cb_id),
+        None,
+        None
+    );
+
+    web_sys::console::log_1(&"✓ Table subscription registered (handlers should be active)".into());
+
+    // Cleanup
+    bridge.unregister_callback(insert_cb_id);
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
+
+/// Test that reducer calls execute on the server
+/// NOTE: This test will fail until we implement real SDK integration
+#[wasm_bindgen_test]
+async fn test_reducer_call_execution() {
+    web_sys::console::log_1(&"TEST: Reducer Call Execution".into());
+
+    let bridge = get_bridge();
+    let connection_id = bridge.create_connection(
+        "http://localhost:3000",
+        "bevy-spacetimedb-test-module",
+        None
+    );
+
+    JsFuture::from(bridge.connect(connection_id))
+        .await
+        .expect("Connection should succeed");
+
+    // Call create_player reducer
+    let args = js_sys::Array::new();
+    args.push(&wasm_bindgen::JsValue::from(999_u32)); // id
+    args.push(&wasm_bindgen::JsValue::from_str("TestPlayer")); // name
+
+    // This should execute on the server with real SDK (not stub)
+    let call_promise = bridge.call_reducer(
+        connection_id,
+        "create_player",
+        wasm_bindgen::JsValue::from(args)
+    );
+
+    JsFuture::from(call_promise)
+        .await
+        .expect("Reducer call should succeed");
+
+    web_sys::console::log_1(&"✓ Reducer call executed successfully".into());
+
+    // Cleanup - delete the test player
+    let delete_args = js_sys::Array::new();
+    delete_args.push(&wasm_bindgen::JsValue::from(999_u32));
+    let _ = JsFuture::from(bridge.call_reducer(
+        connection_id,
+        "delete_player",
+        wasm_bindgen::JsValue::from(delete_args)
+    )).await;
+
+    let _ = JsFuture::from(bridge.disconnect(connection_id)).await;
+}
