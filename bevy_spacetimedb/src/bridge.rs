@@ -118,17 +118,20 @@ extern "C" {
 /// ```
 ///
 /// For tests: Call `test_bridge_init::init_test_bridge()` before running tests.
-pub fn get_bridge() -> SpacetimeDBBridge {
+pub fn get_bridge() -> Result<SpacetimeDBBridge, String> {
     // Get browser window (required - we only support browser environments)
-    let window = web_sys::window().expect("Failed to get window - browser environment required");
+    let window = web_sys::window().ok_or_else(|| {
+        "Failed to get window - browser environment required. \
+        This library only works in WASM browser environments.".to_string()
+    })?;
 
     if let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("__SPACETIMEDB_BRIDGE__")) {
         if !bridge.is_undefined() && !bridge.is_null() {
-            return bridge.unchecked_into();
+            return Ok(bridge.unchecked_into());
         }
     }
 
-    panic!(
+    Err(
         "\n\n\
         ╔══════════════════════════════════════════════════════════════════════════════╗\n\
         ║ SpacetimeDB Bridge Not Found!                                               ║\n\
@@ -140,7 +143,7 @@ pub fn get_bridge() -> SpacetimeDBBridge {
         ║ For production use, add this to your HTML file:                             ║\n\
         ║                                                                              ║\n\
         ║   <script type=\"module\">                                                    ║\n\
-        ║     import {{ SpacetimeDBBridge }} from './js/spacetimedb-bridge.js';        ║\n\
+        ║     import { SpacetimeDBBridge } from './js/spacetimedb-bridge.js';        ║\n\
         ║     window.__SPACETIMEDB_BRIDGE__ = new SpacetimeDBBridge();                ║\n\
         ║                                                                              ║\n\
         ║     // THEN load your WASM module                                           ║\n\
@@ -153,7 +156,7 @@ pub fn get_bridge() -> SpacetimeDBBridge {
         ║                                                                              ║\n\
         ║ The bridge file should be at: bevy_spacetimedb/js/spacetimedb-bridge.js    ║\n\
         ║                                                                              ║\n\
-        ╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
+        ╚══════════════════════════════════════════════════════════════════════════════╝\n\n".to_string()
     )
 }
 

@@ -126,7 +126,13 @@ impl Plugin for StdbPlugin {
         };
 
         // Get the JavaScript bridge
-        let bridge = get_bridge();
+        let bridge = match get_bridge() {
+            Ok(bridge) => bridge,
+            Err(e) => {
+                log_error(format!("StdbPlugin failed to initialize: {}", e));
+                return;
+            }
+        };
 
         // Create the connection
         let connection_id = bridge.create_connection(uri, module_name, self.auth_token.clone());
@@ -199,12 +205,25 @@ impl Plugin for StdbPlugin {
 
                     // Give the SDK a moment to sync the module schema
                     // The SDK needs time to load table definitions after connection
-                    let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _| {
-                        web_sys::window()
-                            .unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
-                            .unwrap();
+                    // If delay fails, we proceed immediately (non-critical)
+                    let delay_result = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _| {
+                        if let Some(window) = web_sys::window() {
+                            if let Err(e) = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100) {
+                                log_error(format!("Failed to set timeout for schema sync delay: {:?}", e));
+                                // Resolve immediately if timeout fails
+                                let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+                            }
+                        } else {
+                            log_error("Window not available for schema sync delay".to_string());
+                            // Resolve immediately if window not available
+                            let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+                        }
                     })).await;
+
+                    if let Err(e) = delay_result {
+                        log_error(format!("Schema sync delay failed: {:?}", e));
+                        // Continue anyway - delay is non-critical
+                    }
 
                     // NOW subscribe to tables (after connection is established and schema synced)
                     // The callbacks and channels are already set up, we just need to call subscribe_table

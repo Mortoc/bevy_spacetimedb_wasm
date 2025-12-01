@@ -13,7 +13,8 @@ use serde::de::DeserializeOwned;
 pub fn init_test_bridge() {
     // The bridge is initialized lazily when get_bridge() is called
     // This function is just for explicitness in tests
-    let _ = crate::bridge::get_bridge();
+    // In tests, we can panic if the bridge isn't set up correctly
+    crate::bridge::get_bridge().expect("Test bridge not initialized. Did you forget to call init_test_bridge() or set up the bridge in your test?");
 }
 
 /// Helper to connect and subscribe to tables in tests
@@ -44,7 +45,7 @@ impl TestConnection {
         module_name: &str,
         auth_token: Option<String>,
     ) -> Result<Self, String> {
-        let bridge = crate::bridge::get_bridge();
+        let bridge = crate::bridge::get_bridge()?;
 
         // Create connection
         let connection_id = bridge.create_connection(uri, module_name, auth_token);
