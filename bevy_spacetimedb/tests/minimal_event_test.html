@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Minimal SDK Event Test</title>
+</head>
+<body>
+    <h1>Minimal SpacetimeDB SDK Event Test</h1>
+    <div id="log"></div>
+
+    <script src="spacetimedb-bridge.bundle.js"></script>
+    <script>
+        const log = (msg) => {
+            const div = document.getElementById('log');
+            const p = document.createElement('p');
+            p.textContent = new Date().toISOString() + ': ' + msg;
+            div.appendChild(p);
+            console.log(msg);
+        };
+
+        async function test() {
+            log('Getting bridge from window...');
+            const bridge = window.__SPACETIMEDB_BRIDGE__;
+            log('Bridge available: ' + (bridge ? 'YES' : 'NO'));
+
+            if (!bridge) {
+                log('❌ Bridge not found!');
+                return;
+            }
+
+            log('Creating connection via bridge...');
+            const connectionId = bridge.createConnection('http://localhost:3000', 'testmod3', null);
+            log('Connection ID: ' + connectionId);
+
+            // Register a simple callback to track when reducer is called
+            let insertEventFired = false;
+            const insertCallback = bridge.registerCallback((data) => {
+                log('🎉🎉🎉 INSERT CALLBACK FIRED!');
+                log('Data: ' + data);
+                insertEventFired = true;
+            });
+
+            log('Registered insert callback ID: ' + insertCallback);
+
+            try {
+                log('Connecting...');
+                await bridge.connect(connectionId);
+                log('✓ Connected!');
+
+                // Set up error handlers
+                let conn = bridge.connections.get(connectionId);
+                conn.sdk.on('error', (error) => {
+                    log(`❌ SDK ERROR: ${error}`);
+                });
+
+                log('Subscribing to test_player table...');
+                await bridge.subscribeTable(connectionId, 'test_player', insertCallback, null, null);
+                log('✓ Subscribed!');
+
+                // Wait a moment for subscription to fully apply
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                log('Calling createPlayer reducer...');
+                const args = [999, 'MinimalTest'];
+                await bridge.callReducer(connectionId, 'create_player', args);
+                log('✓ Reducer called!');
+
+                // Wait for event and table update
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                // Verify results
+                conn = bridge.connections.get(connectionId);
+                const table = conn.sdk.db.testPlayer;
+                log('Table count after reducer: ' + table.count());
+                log('Table rows: ' + JSON.stringify([...table]));
+
+                if (insertEventFired) {
+                    log('✅ SUCCESS! Insert event was fired!');
+                } else {
+                    log('❌ FAILURE! Insert event was NOT fired');
+                }
+
+            } catch (e) {
+                log('❌ Error: ' + e);
+                console.error(e);
+            }
+        }
+
+        test().catch(e => {
+            log('❌ Test failed: ' + e);
+            console.error(e);
+        });
+    </script>
+</body>
+</html>

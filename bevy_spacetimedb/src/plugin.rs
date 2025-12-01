@@ -1,5 +1,6 @@
 use crate::{
-    bridge::get_bridge, AddEventChannelAppExtensions, StdbConnectedEvent,
+    bridge::get_bridge, log_utils::{log_error, log_info},
+    AddEventChannelAppExtensions, StdbConnectedEvent,
     StdbConnectionErrorEvent, StdbDisconnectedEvent, StdbConnection,
     tables::TableConfig,
 };
@@ -109,14 +110,20 @@ impl StdbPlugin {
 impl Plugin for StdbPlugin {
     fn build(&self, app: &mut App) {
         // Validate configuration
-        let uri = self
-            .uri
-            .as_ref()
-            .expect("No URI set for StdbPlugin. Set it with .with_uri()");
-        let module_name = self
-            .module_name
-            .as_ref()
-            .expect("No module name set for StdbPlugin. Set it with .with_module_name()");
+        let uri = match self.uri.as_ref() {
+            Some(uri) => uri,
+            None => {
+                log_error("StdbPlugin error: No URI set. Use .with_uri() to configure the plugin");
+                return;
+            }
+        };
+        let module_name = match self.module_name.as_ref() {
+            Some(name) => name,
+            None => {
+                log_error("StdbPlugin error: No module name set. Use .with_module_name() to configure the plugin");
+                return;
+            }
+        };
 
         // Get the JavaScript bridge
         let bridge = get_bridge();
@@ -124,13 +131,10 @@ impl Plugin for StdbPlugin {
         // Create the connection
         let connection_id = bridge.create_connection(uri, module_name, self.auth_token.clone());
 
-        web_sys::console::log_1(
-            &format!(
-                "Created SpacetimeDB connection {} to {}/{}",
-                connection_id, uri, module_name
-            )
-            .into(),
-        );
+        log_info(format!(
+            "Created SpacetimeDB connection {} to {}/{}",
+            connection_id, uri, module_name
+        ));
 
         // Setup connection lifecycle event channels
         let (connected_send, connected_recv) = std::sync::mpsc::channel::<StdbConnectedEvent>();
@@ -185,21 +189,14 @@ impl Plugin for StdbPlugin {
 
         // Connect to the server asynchronously
         wasm_bindgen_futures::spawn_local(async move {
-            web_sys::console::log_1(
-                &format!("Connecting to SpacetimeDB connection {}...", connection_id).into(),
-            );
+            log_info(format!("Connecting to SpacetimeDB connection {}...", connection_id));
 
             match wasm_bindgen_futures::JsFuture::from(bridge.connect(connection_id)).await {
                 Ok(_) => {
-                    web_sys::console::log_1(
-                        &format!("Successfully connected to SpacetimeDB (connection {})", connection_id)
-                            .into(),
-                    );
+                    log_info(format!("Successfully connected to SpacetimeDB (connection {})", connection_id));
                 }
                 Err(e) => {
-                    web_sys::console::error_1(
-                        &format!("Failed to connect to SpacetimeDB: {:?}", e).into(),
-                    );
+                    log_error(format!("Failed to connect to SpacetimeDB: {:?}", e));
                 }
             }
         });

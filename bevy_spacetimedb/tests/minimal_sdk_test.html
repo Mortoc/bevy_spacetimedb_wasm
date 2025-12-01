@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal SpacetimeDB SDK Test</title>
+</head>
+<body>
+    <h1>Minimal SpacetimeDB SDK Test</h1>
+    <div id="log"></div>
+
+    <script type="module">
+        // Import from the bundled SDK in node_modules
+        import { DbConnectionBuilder, DbConnectionImpl } from './node_modules/spacetimedb/dist/index.js';
+
+        const log = (msg) => {
+            console.log(msg);
+            document.getElementById('log').innerHTML += `<div>${msg}</div>`;
+        };
+
+        log('Starting minimal SDK test...');
+
+        // We need to load the generated module bindings
+        // For this minimal test, let's just test the raw SDK connection
+        log('Note: This is a raw SDK test without generated bindings');
+        log('Skipping - need generated bindings to create DbConnection');
+        log('');
+        log('The real issue: Our bridge IS correctly using the SDK.');
+        log('The problem is that event callbacks are not firing.');
+        log('');
+        log('Next step: Check if we need to call subscribe() BEFORE setting up event handlers');
+
+        // Commenting out the connection test since we need generated bindings
+        /*
+        const conn = DbConnection.builder()
+            .withUri('http://localhost:3000')
+            .withModuleName('test-module')
+            .onConnect((connection, identity, token) => {
+                log(`✅ Connected! Identity: ${identity.toHexString()}`);
+
+                // Subscribe to the table FIRST
+                log('Subscribing to SELECT * FROM test_player...');
+                connection.subscriptionBuilder()
+                    .onApplied(() => {
+                        log('✅ Subscription applied!');
+                        log(`Table count: ${connection.db.testPlayer.count()}`);
+
+                        // THEN set up event handlers
+                        connection.db.testPlayer.onInsert((ctx, row) => {
+                            log(`🎉 INSERT EVENT! Row: ${JSON.stringify(row)}`);
+                        });
+
+                        // THEN call a reducer to test
+                        log('Calling create_player reducer...');
+                        connection.reducers.createPlayer(12345, 'MinimalTest')
+                            .then(() => log('✅ Reducer called'))
+                            .catch(err => log(`❌ Reducer error: ${err}`));
+                    })
+                    .subscribe(['SELECT * FROM test_player']);
+            })
+            .onConnectError((ctx, error) => {
+                log(`❌ Connection error: ${error}`);
+            })
+            .build();
+    </script>
+</body>
+</html>

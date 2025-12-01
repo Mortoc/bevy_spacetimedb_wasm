@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SpacetimeDB SDK Table Test</title>
+</head>
+<body>
+    <h1>SpacetimeDB SDK Table Event Test</h1>
+    <div id="log"></div>
+
+    <script type="module">
+        import { DbConnection } from './generated/index.ts';
+
+        const log = (msg) => {
+            const div = document.getElementById('log');
+            const p = document.createElement('p');
+            p.textContent = msg;
+            div.appendChild(p);
+            console.log(msg);
+        };
+
+        async function test() {
+            log('Creating connection...');
+
+            const conn = DbConnection.builder()
+                .withUri('http://localhost:3000')
+                .withModuleName('test-module')
+                .build();
+
+            log('Connection created');
+            log('SDK type: ' + typeof conn);
+            log('SDK keys: ' + Object.keys(conn).join(', '));
+
+            conn.onConnect((ctx, identity, token) => {
+                log('✓ Connected! Identity: ' + identity.toHexString());
+                log('DB type: ' + typeof conn.db);
+                log('DB keys: ' + Object.keys(conn.db).join(', '));
+
+                // Check if testPlayer table exists
+                if (conn.db.testPlayer) {
+                    const table = conn.db.testPlayer;
+                    log('✓ testPlayer table found');
+                    log('Table type: ' + typeof table);
+                    log('Table keys: ' + Object.keys(table).join(', '));
+                    log('Table prototype: ' + Object.getPrototypeOf(table).constructor.name);
+                    log('Has onInsert: ' + (typeof table.onInsert));
+                    log('Has onUpdate: ' + (typeof table.onUpdate));
+                    log('Has onDelete: ' + (typeof table.onDelete));
+
+                    // Try to register callbacks
+                    try {
+                        table.onInsert((ctx, row) => {
+                            log('🎉 INSERT EVENT FIRED! Row: ' + JSON.stringify(row));
+                        });
+                        log('✓ onInsert registered');
+                    } catch (e) {
+                        log('❌ Failed to register onInsert: ' + e);
+                    }
+
+                    try {
+                        table.onUpdate((ctx, oldRow, newRow) => {
+                            log('🎉 UPDATE EVENT FIRED! Old: ' + JSON.stringify(oldRow) + ', New: ' + JSON.stringify(newRow));
+                        });
+                        log('✓ onUpdate registered');
+                    } catch (e) {
+                        log('❌ Failed to register onUpdate: ' + e);
+                    }
+
+                    try {
+                        table.onDelete((ctx, row) => {
+                            log('🎉 DELETE EVENT FIRED! Row: ' + JSON.stringify(row));
+                        });
+                        log('✓ onDelete registered');
+                    } catch (e) {
+                        log('❌ Failed to register onDelete: ' + e);
+                    }
+
+                    // Create a subscription to all rows
+                    log('Creating subscription...');
+                    conn.subscriptionBuilder()
+                        .onApplied((ctx) => {
+                            log('✓ Subscription applied');
+                            log('Table count: ' + table.count());
+
+                            // Call a reducer to trigger an insert
+                            setTimeout(async () => {
+                                log('Calling createPlayer reducer...');
+                                try {
+                                    await conn.reducers.createPlayer(123, 'TestPlayer');
+                                    log('✓ Reducer called');
+                                } catch (e) {
+                                    log('❌ Reducer failed: ' + e);
+                                }
+                            }, 1000);
+                        })
+                        .subscribeToAllTables();
+                } else {
+                    log('❌ testPlayer table not found in db');
+                }
+            });
+
+            conn.onConnectError((ctx, error) => {
+                log('❌ Connection error: ' + error);
+            });
+        }
+
+        test().catch(e => log('❌ Test failed: ' + e));
+    </script>
+</body>
+</html>

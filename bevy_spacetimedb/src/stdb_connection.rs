@@ -1,5 +1,7 @@
 use bevy::prelude::Resource;
 use crate::bridge::SpacetimeDBBridge;
+use crate::identity::Identity;
+use crate::log_utils::{log_error, log_info};
 use crate::reducers::ReducerCaller;
 
 /// A connection to the SpacetimeDB server via the TypeScript SDK bridge
@@ -33,7 +35,10 @@ impl<T> std::ops::Deref for SendSyncWrapper<T> {
 
 impl StdbConnection {
     /// Create a new connection resource
-    pub(crate) fn new(bridge: SpacetimeDBBridge, connection_id: u32) -> Self {
+    ///
+    /// This is exposed publicly to allow tests to create connections directly.
+    /// In normal usage, connections are created via the StdbPlugin.
+    pub fn new(bridge: SpacetimeDBBridge, connection_id: u32) -> Self {
         Self {
             bridge: SendSyncWrapper(bridge),
             connection_id,
@@ -74,14 +79,80 @@ impl StdbConnection {
         wasm_bindgen_futures::spawn_local(async move {
             match wasm_bindgen_futures::JsFuture::from(promise).await {
                 Ok(_) => {
-                    web_sys::console::log_1(&format!("Disconnected from SpacetimeDB").into());
+                    log_info(format!("Disconnected from SpacetimeDB"));
                 }
                 Err(e) => {
-                    web_sys::console::error_1(
-                        &format!("Failed to disconnect: {:?}", e).into(),
-                    );
+                    log_error(format!("Failed to disconnect: {:?}", e));
                 }
             }
         });
     }
+
+    /// Get the current user's identity
+    ///
+    /// Returns `None` if not connected or if the identity is not yet available.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn display_user_id(stdb: Res<StdbConnection>) {
+    ///     if let Some(identity) = stdb.identity() {
+    ///         println!("User ID: {}", identity.short_hex());
+    ///     }
+    /// }
+    /// ```
+    pub fn identity(&self) -> Option<Identity> {
+        let hex = self.bridge.get_identity(self.connection_id)?;
+        Identity::from_hex(&hex).ok()
+    }
+
+    /// Get the authentication token
+    ///
+    /// Returns `None` if not connected or using anonymous authentication.
+    ///
+    /// The token can be saved to localStorage for session persistence.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn save_session(stdb: Res<StdbConnection>) {
+    ///     if let Some(token) = stdb.token() {
+    ///         // Save to localStorage or other storage
+    ///         save_to_storage("spacetime_token", &token);
+    ///     }
+    /// }
+    /// ```
+    pub fn token(&self) -> Option<String> {
+        self.bridge.get_token(self.connection_id)
+    }
+
+    /// Get the current connection state
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn show_connection_status(stdb: Res<StdbConnection>) {
+    ///     match stdb.state() {
+    ///         ConnectionState::Connected => println!("✅ Connected"),
+    ///         ConnectionState::Connecting => println!("⏳ Connecting..."),
+    ///         ConnectionState::Disconnected => println!("❌ Disconnected"),
+    ///     }
+    /// }
+    /// ```
+    pub fn state(&self) -> ConnectionState {
+        let state_str = self.bridge.get_connection_state(self.connection_id);
+        match state_str.as_str() {
+            "connected" => ConnectionState::Connected,
+            "connecting" => ConnectionState::Connecting,
+            _ => ConnectionState::Disconnected,
+        }
+    }
+}
+
+/// Connection state enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionState {
+    /// Not connected to the server
+    Disconnected,
+    /// Currently establishing connection
+    Connecting,
+    /// Connected to the server
+    Connected,
 }
