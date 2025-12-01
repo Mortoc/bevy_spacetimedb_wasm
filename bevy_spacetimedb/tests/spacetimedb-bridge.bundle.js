@@ -5533,61 +5533,170 @@ var __initSpacetimeDBBridge = (() => {
     };
   }
 
-  // generated/create_player_reducer.ts
-  var create_player_reducer_default = {
-    id: t.u32(),
+  // generated/create_editor_user_reducer.ts
+  var create_editor_user_reducer_default = {
+    steamId: t.string(),
+    editorIdentity: t.identity()
+  };
+
+  // generated/join_game_reducer.ts
+  var join_game_reducer_default = {
     name: t.string()
   };
 
-  // generated/delete_player_reducer.ts
-  var delete_player_reducer_default = {
-    id: t.u32()
+  // generated/leave_game_reducer.ts
+  var leave_game_reducer_default = {};
+
+  // generated/move_player_reducer.ts
+  var move_player_reducer_default = {
+    x: t.f32(),
+    y: t.f32()
   };
 
-  // generated/on_connect_reducer.ts
-  var on_connect_reducer_default = {};
-
-  // generated/on_disconnect_reducer.ts
-  var on_disconnect_reducer_default = {};
-
-  // generated/update_player_reducer.ts
-  var update_player_reducer_default = {
-    id: t.u32(),
-    name: t.string()
+  // generated/steam_login_reducer.ts
+  var steam_login_reducer_default = {
+    steamId: t.string()
   };
 
-  // generated/test_player_table.ts
-  var test_player_table_default = t.row({
-    id: t.u32().primaryKey(),
-    name: t.string()
+  // generated/store_auth_mapping_reducer.ts
+  var store_auth_mapping_reducer_default = {
+    steamId: t.string(),
+    spacetimeIdentity: t.identity(),
+    spacetimeToken: t.string()
+  };
+
+  // generated/auth_source_table.ts
+  var auth_source_table_default = t.row({
+    id: t.u64().primaryKey(),
+    steamId: t.string(),
+    spacetimeIdentity: t.identity(),
+    spacetimeToken: t.string(),
+    createdAt: t.timestamp()
   });
 
-  // generated/test_player_type.ts
-  var test_player_type_default = t.object("TestPlayer", {
-    id: t.u32(),
-    name: t.string()
+  // generated/editor_user_table.ts
+  var editor_user_table_default = t.row({
+    id: t.u64().primaryKey(),
+    squatchIdentityId: t.u64(),
+    steamId: t.string(),
+    createdAt: t.timestamp()
+  });
+
+  // generated/player_table.ts
+  var player_table_default = t.row({
+    id: t.u64().primaryKey(),
+    squatchIdentityId: t.u64(),
+    name: t.string(),
+    x: t.f32(),
+    y: t.f32(),
+    score: t.u32()
+  });
+
+  // generated/squatch_identity_table.ts
+  var squatch_identity_table_default = t.row({
+    id: t.u64().primaryKey(),
+    spacetimeIdentity: t.identity(),
+    steamId: t.option(t.string()),
+    createdAt: t.timestamp()
+  });
+
+  // generated/auth_source_type.ts
+  var auth_source_type_default = t.object("AuthSource", {
+    id: t.u64(),
+    steamId: t.string(),
+    spacetimeIdentity: t.identity(),
+    spacetimeToken: t.string(),
+    createdAt: t.timestamp()
+  });
+
+  // generated/editor_user_type.ts
+  var editor_user_type_default = t.object("EditorUser", {
+    id: t.u64(),
+    squatchIdentityId: t.u64(),
+    steamId: t.string(),
+    createdAt: t.timestamp()
+  });
+
+  // generated/player_type.ts
+  var player_type_default = t.object("Player", {
+    id: t.u64(),
+    squatchIdentityId: t.u64(),
+    name: t.string(),
+    x: t.f32(),
+    y: t.f32(),
+    score: t.u32()
+  });
+
+  // generated/squatch_identity_type.ts
+  var squatch_identity_type_default = t.object("SquatchIdentity", {
+    id: t.u64(),
+    spacetimeIdentity: t.identity(),
+    steamId: t.option(t.string()),
+    createdAt: t.timestamp()
   });
 
   // generated/index.ts
   var tablesSchema = schema(
     table({
-      name: "test_player",
+      name: "auth_source",
+      indexes: [
+        { name: "id", algorithm: "btree", columns: [
+          "id"
+        ] },
+        { name: "steam_id", algorithm: "btree", columns: [
+          "steamId"
+        ] }
+      ],
+      constraints: [
+        { name: "auth_source_id_key", constraint: "unique", columns: ["id"] },
+        { name: "auth_source_steam_id_key", constraint: "unique", columns: ["steam_id"] }
+      ]
+    }, auth_source_table_default),
+    table({
+      name: "editor_user",
       indexes: [
         { name: "id", algorithm: "btree", columns: [
           "id"
         ] }
       ],
       constraints: [
-        { name: "test_player_id_key", constraint: "unique", columns: ["id"] }
+        { name: "editor_user_id_key", constraint: "unique", columns: ["id"] }
       ]
-    }, test_player_table_default)
+    }, editor_user_table_default),
+    table({
+      name: "player",
+      indexes: [
+        { name: "id", algorithm: "btree", columns: [
+          "id"
+        ] }
+      ],
+      constraints: [
+        { name: "player_id_key", constraint: "unique", columns: ["id"] }
+      ]
+    }, player_table_default),
+    table({
+      name: "squatch_identity",
+      indexes: [
+        { name: "id", algorithm: "btree", columns: [
+          "id"
+        ] },
+        { name: "spacetime_identity", algorithm: "btree", columns: [
+          "spacetimeIdentity"
+        ] }
+      ],
+      constraints: [
+        { name: "squatch_identity_id_key", constraint: "unique", columns: ["id"] },
+        { name: "squatch_identity_spacetime_identity_key", constraint: "unique", columns: ["spacetime_identity"] }
+      ]
+    }, squatch_identity_table_default)
   );
   var reducersSchema = reducers(
-    reducerSchema("create_player", create_player_reducer_default),
-    reducerSchema("delete_player", delete_player_reducer_default),
-    reducerSchema("on_connect", on_connect_reducer_default),
-    reducerSchema("on_disconnect", on_disconnect_reducer_default),
-    reducerSchema("update_player", update_player_reducer_default)
+    reducerSchema("create_editor_user", create_editor_user_reducer_default),
+    reducerSchema("join_game", join_game_reducer_default),
+    reducerSchema("leave_game", leave_game_reducer_default),
+    reducerSchema("move_player", move_player_reducer_default),
+    reducerSchema("steam_login", steam_login_reducer_default),
+    reducerSchema("store_auth_mapping", store_auth_mapping_reducer_default)
   );
   var REMOTE_MODULE = {
     versionInfo: {
@@ -6361,21 +6470,31 @@ var __initSpacetimeDBBridge = (() => {
       }
       console.log(`\u2713 Event handlers registered for ${tableName}`);
       return new Promise((resolve, reject) => {
-        if (!conn.globalSubscription) {
-          console.log(`  - Creating global subscription to all tables`);
-          conn.globalSubscription = conn.sdk.subscriptionBuilder().onApplied(() => {
-            console.log(`\u2713 Global subscription applied`);
-            console.log(`\u2713 Table count: ${table2.count()}`);
-            resolve();
-          }).onError((ctx, error) => {
-            console.error(`\u274C Global subscription error:`, error);
-            reject(error);
-          }).subscribe(["SELECT * FROM *"]);
-          console.log(`\u2713 Subscription handle stored`);
-        } else {
-          console.log(`  - Using existing global subscription`);
+        if (conn.subscriptionApplied) {
+          console.log(`  - Using existing applied subscription`);
           console.log(`\u2713 Table count: ${table2.count()}`);
           resolve();
+        } else if (conn.subscriptionPending) {
+          console.log(`  - Subscription pending, waiting for onApplied...`);
+          conn.subscriptionPending.then(resolve).catch(reject);
+        } else {
+          console.log(`  - Creating global subscription to all tables`);
+          conn.subscriptionPending = new Promise((resolveSubscription, rejectSubscription) => {
+            const subscription = conn.sdk.subscriptionBuilder().onApplied(() => {
+              console.log(`\u2713 Global subscription applied`);
+              console.log(`\u2713 Table count: ${table2.count()}`);
+              conn.subscriptionApplied = true;
+              conn.globalSubscription = subscription;
+              conn.subscriptionPending = null;
+              resolveSubscription();
+            }).onError((ctx, error) => {
+              console.error(`\u274C Global subscription error:`, error);
+              conn.subscriptionPending = null;
+              rejectSubscription(error);
+            }).subscribe(["SELECT * FROM *"]);
+            console.log(`\u2713 Subscription created, waiting for onApplied...`);
+          });
+          conn.subscriptionPending.then(resolve).catch(reject);
         }
       });
     }

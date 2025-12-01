@@ -367,26 +367,46 @@ class SpacetimeDBBridge {
 
         // THEN subscribe (official pattern: handlers first, subscribe second)
         return new Promise((resolve, reject) => {
-            if (!conn.globalSubscription) {
-                console.log(`  - Creating global subscription to all tables`);
-
-                conn.globalSubscription = conn.sdk.subscriptionBuilder()
-                    .onApplied(() => {
-                        console.log(`✓ Global subscription applied`);
-                        console.log(`✓ Table count: ${table.count()}`);
-                        resolve();
-                    })
-                    .onError((ctx, error) => {
-                        console.error(`❌ Global subscription error:`, error);
-                        reject(error);
-                    })
-                    .subscribe(['SELECT * FROM *']);
-
-                console.log(`✓ Subscription handle stored`);
-            } else {
-                console.log(`  - Using existing global subscription`);
+            // Check if subscription is already applied (not just created)
+            if (conn.subscriptionApplied) {
+                console.log(`  - Using existing applied subscription`);
                 console.log(`✓ Table count: ${table.count()}`);
                 resolve();
+            } else if (conn.subscriptionPending) {
+                // Subscription was created but onApplied hasn't fired yet
+                // Wait for it to complete
+                console.log(`  - Subscription pending, waiting for onApplied...`);
+                conn.subscriptionPending.then(resolve).catch(reject);
+            } else {
+                // Create new subscription
+                console.log(`  - Creating global subscription to all tables`);
+
+                // Create a promise that resolves when onApplied fires
+                conn.subscriptionPending = new Promise((resolveSubscription, rejectSubscription) => {
+                    const subscription = conn.sdk.subscriptionBuilder()
+                        .onApplied(() => {
+                            console.log(`✓ Global subscription applied`);
+                            console.log(`✓ Table count: ${table.count()}`);
+
+                            // Mark as applied and store the subscription
+                            conn.subscriptionApplied = true;
+                            conn.globalSubscription = subscription;
+                            conn.subscriptionPending = null;
+
+                            resolveSubscription();
+                        })
+                        .onError((ctx, error) => {
+                            console.error(`❌ Global subscription error:`, error);
+                            conn.subscriptionPending = null;
+                            rejectSubscription(error);
+                        })
+                        .subscribe(['SELECT * FROM *']);
+
+                    console.log(`✓ Subscription created, waiting for onApplied...`);
+                });
+
+                // Wait for the subscription to be applied
+                conn.subscriptionPending.then(resolve).catch(reject);
             }
         });
     }
