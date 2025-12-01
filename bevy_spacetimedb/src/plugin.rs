@@ -178,22 +178,63 @@ impl Plugin for StdbPlugin {
         disconnected_cb.forget();
         error_cb.forget();
 
-        // Setup table subscriptions
+        // Prepare table subscriptions (create callbacks and channels) but don't subscribe yet
+        let mut prepared_subscriptions = Vec::new();
         for table_config in &self.table_configs {
-            (table_config.setup_fn)(&bridge, connection_id, &table_config.events, app);
+            let prepared = (table_config.prepare_fn)(&bridge, &table_config.events, app);
+            prepared_subscriptions.push(prepared);
         }
 
-        // Create and insert the connection resource
+        // Create and insert the connection resource BEFORE connecting
         let connection = StdbConnection::new(bridge.clone(), connection_id);
         app.insert_resource(connection);
 
-        // Connect to the server asynchronously
+        // Connect to the server asynchronously, then subscribe to tables
         wasm_bindgen_futures::spawn_local(async move {
             log_info(format!("Connecting to SpacetimeDB connection {}...", connection_id));
 
             match wasm_bindgen_futures::JsFuture::from(bridge.connect(connection_id)).await {
                 Ok(_) => {
                     log_info(format!("Successfully connected to SpacetimeDB (connection {})", connection_id));
+
+                    // Give the SDK a moment to sync the module schema
+                    // The SDK needs time to load table definitions after connection
+                    let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _| {
+                        web_sys::window()
+                            .unwrap()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100)
+                            .unwrap();
+                    })).await;
+
+                    // NOW subscribe to tables (after connection is established and schema synced)
+                    // The callbacks and channels are already set up, we just need to call subscribe_table
+                    for prepared in prepared_subscriptions {
+                        let result = wasm_bindgen_futures::JsFuture::from(bridge.subscribe_table(
+                            connection_id,
+                            &prepared.table_name,
+                            prepared.insert_callback_id,
+                            prepared.update_callback_id,
+                            prepared.delete_callback_id,
+                        )).await;
+
+                        match result {
+                            Ok(_) => {
+                                log_info(format!(
+                                    "Subscribed to table {} (insert: {}, update: {}, delete: {})",
+                                    prepared.table_name,
+                                    prepared.insert_callback_id.is_some(),
+                                    prepared.update_callback_id.is_some(),
+                                    prepared.delete_callback_id.is_some()
+                                ));
+                            }
+                            Err(e) => {
+                                log_error(format!(
+                                    "Failed to subscribe to table {}: {:?}",
+                                    prepared.table_name, e
+                                ));
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     log_error(format!("Failed to connect to SpacetimeDB: {:?}", e));
